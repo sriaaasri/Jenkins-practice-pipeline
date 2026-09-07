@@ -35,7 +35,9 @@ pipeline {
             steps{
                 sh """
                     echo "Hi ${NAME} . Project: ${project}"
+                    echo "Run tests - ${RUN_TESTS}"
                 """
+                echo "${Environment}"
             }
         }
     }
