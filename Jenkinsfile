@@ -8,8 +8,8 @@ pipeline {
         timestamps()
         buildDiscarder(
             logRotator(
-                numToKeepStr: '10',
-                artifactNumToKeepStr: '5'
+                numToKeepStr: '4',
+                artifactNumToKeepStr: '2'
             )
         )
     }

@@ -1,0 +1,669 @@
+pipeline {
+
+    agent {
+        label 'linux-docker'
+    }
+
+    options {
+
+        // Do not allow two deployments of the same application simultaneously
+        disableConcurrentBuilds()
+
+        // Prevent builds from running forever
+        timeout(time: 60, unit: 'MINUTES')
+
+        // Add timestamps to console output
+        timestamps()
+
+        // Keep only useful builds
+        buildDiscarder(
+            logRotator(
+                numToKeepStr: '20',
+                artifactNumToKeepStr: '10'
+            )
+        )
+
+        // Do not automatically checkout
+        skipDefaultCheckout(true)
+
+        // Fail the pipeline if a stage hangs
+        skipStagesAfterUnstable()
+    }
+
+    parameters {
+
+        choice(
+            name: 'ENVIRONMENT',
+            choices: [
+                'dev',
+                'qa',
+                'prod'
+            ],
+            description: 'Target environment'
+        )
+
+        string(
+            name: 'GIT_BRANCH',
+            defaultValue: 'main',
+            description: 'Application Git branch'
+        )
+
+        booleanParam(
+            name: 'RUN_SONAR',
+            defaultValue: true,
+            description: 'Run SonarQube analysis'
+        )
+
+        booleanParam(
+            name: 'RUN_SECURITY_SCAN',
+            defaultValue: true,
+            description: 'Run security scans'
+        )
+
+        booleanParam(
+            name: 'PUBLISH_IMAGE',
+            defaultValue: true,
+            description: 'Push container image to registry'
+        )
+
+        booleanParam(
+            name: 'UPDATE_GITOPS',
+            defaultValue: true,
+            description: 'Update GitOps repository'
+        )
+    }
+
+    environment {
+
+        APP_NAME = 'myapp'
+
+        // Application repository
+        APP_REPO = 'git@github.com:company/myapp.git'
+
+        // GitOps repository
+        GITOPS_REPO = 'git@github.com:company/platform-gitops.git'
+
+        // Container registry
+        REGISTRY = 'registry.example.com'
+
+        IMAGE_NAME = "${REGISTRY}/myapp"
+
+        // Credentials stored in Jenkins
+        GIT_CREDENTIALS = credentials('github-ssh')
+
+        REGISTRY_CREDENTIALS = credentials('container-registry')
+
+        SONARQUBE_ENV = 'sonarqube'
+
+        // Maven configuration
+        MAVEN_OPTS = '-Xms512m -Xmx2048m'
+
+        // Generate immutable image tag
+        IMAGE_TAG = "${BUILD_NUMBER}-${GIT_COMMIT_SHORT}"
+
+        // Helm
+        HELM_RELEASE = 'myapp'
+
+        HELM_CHART = './helm/myapp'
+
+        // GitOps location
+        GITOPS_ENV_PATH = "applications/myapp/${params.ENVIRONMENT}"
+    }
+
+    stages {
+
+        /*
+         * ---------------------------------------------------------
+         * CHECKOUT
+         * ---------------------------------------------------------
+         */
+
+        stage('Checkout Application') {
+
+            steps {
+
+                deleteDir()
+
+                checkout([
+                    $class: 'GitSCM',
+
+                    branches: [
+                        [
+                            name: "*/${params.GIT_BRANCH}"
+                        ]
+                    ],
+
+                    userRemoteConfigs: [
+                        [
+                            credentialsId: 'github-ssh',
+                            url: "${APP_REPO}"
+                        ]
+                    ]
+                ])
+
+                script {
+
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: 'git rev-parse --short=8 HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    env.IMAGE_TAG =
+                        "${BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
+
+                    echo "Application commit: ${env.GIT_COMMIT_SHORT}"
+                    echo "Image tag: ${env.IMAGE_TAG}"
+                }
+            }
+        }
+
+
+        /*
+         * ---------------------------------------------------------
+         * JAVA TEST
+         * ---------------------------------------------------------
+         */
+
+        stage('Unit Tests') {
+
+            steps {
+
+                sh '''
+                    set -euo pipefail
+
+                    ./mvnw \
+                        -B \
+                        -ntp \
+                        clean test
+                '''
+            }
+
+            post {
+
+                always {
+
+                    junit(
+                        testResults: '**/target/surefire-reports/*.xml',
+                        allowEmptyResults: true
+                    )
+                }
+            }
+        }
+
+
+        /*
+         * ---------------------------------------------------------
+         * STATIC ANALYSIS
+         * ---------------------------------------------------------
+         */
+
+        stage('SonarQube Analysis') {
+
+            when {
+                expression {
+                    return params.RUN_SONAR
+                }
+            }
+
+            steps {
+
+                withSonarQubeEnv("${SONARQUBE_ENV}") {
+
+                    sh '''
+                        set -euo pipefail
+
+                        ./mvnw \
+                            -B \
+                            -ntp \
+                            verify \
+                            sonar:sonar
+                    '''
+                }
+            }
+        }
+
+
+        /*
+         * ---------------------------------------------------------
+         * SONAR QUALITY GATE
+         * ---------------------------------------------------------
+         */
+
+        stage('Quality Gate') {
+
+            when {
+                expression {
+                    return params.RUN_SONAR
+                }
+            }
+
+            steps {
+
+                timeout(time: 10, unit: 'MINUTES') {
+
+                    waitForQualityGate(
+                        abortPipeline: true
+                    )
+                }
+            }
+        }
+
+
+        /*
+         * ---------------------------------------------------------
+         * BUILD JAVA ARTIFACT
+         * ---------------------------------------------------------
+         */
+
+        stage('Build Application') {
+
+            steps {
+
+                sh '''
+                    set -euo pipefail
+
+                    ./mvnw \
+                        -B \
+                        -ntp \
+                        package \
+                        -DskipTests
+
+                    test -f target/*.jar
+                '''
+            }
+
+            post {
+
+                success {
+
+                    archiveArtifacts(
+                        artifacts: 'target/*.jar',
+                        fingerprint: true
+                    )
+                }
+            }
+        }
+
+
+        /*
+         * ---------------------------------------------------------
+         * DEPENDENCY SECURITY SCAN
+         * ---------------------------------------------------------
+         */
+
+        stage('Dependency Security Scan') {
+
+            when {
+                expression {
+                    return params.RUN_SECURITY_SCAN
+                }
+            }
+
+            steps {
+
+                sh '''
+                    set -euo pipefail
+
+                    ./mvnw \
+                        -B \
+                        -ntp \
+                        org.owasp:dependency-check-maven:check \
+                        -DfailBuildOnCVSS=7
+                '''
+            }
+        }
+
+
+        /*
+         * ---------------------------------------------------------
+         * DOCKER BUILD
+         * ---------------------------------------------------------
+         */
+
+        stage('Build Container Image') {
+
+            steps {
+
+                sh '''
+                    set -euo pipefail
+
+                    docker build \
+                        --pull \
+                        --no-cache \
+                        -t "${IMAGE_NAME}:${IMAGE_TAG}" \
+                        .
+                '''
+            }
+        }
+
+
+        /*
+         * ---------------------------------------------------------
+         * CONTAINER SECURITY SCAN
+         * ---------------------------------------------------------
+         */
+
+        stage('Container Security Scan') {
+
+            when {
+                expression {
+                    return params.RUN_SECURITY_SCAN
+                }
+            }
+
+            steps {
+
+                sh '''
+                    set -euo pipefail
+
+                    trivy image \
+                        --exit-code 1 \
+                        --severity HIGH,CRITICAL \
+                        --ignore-unfixed \
+                        "${IMAGE_NAME}:${IMAGE_TAG}"
+                '''
+            }
+        }
+
+
+        /*
+         * ---------------------------------------------------------
+         * PUSH IMAGE
+         * ---------------------------------------------------------
+         */
+
+        stage('Push Container Image') {
+
+            when {
+                expression {
+                    return params.PUBLISH_IMAGE
+                }
+            }
+
+            steps {
+
+                script {
+
+                    docker.withRegistry(
+                        "https://${REGISTRY}",
+                        'container-registry'
+                    ) {
+
+                        sh '''
+                            set -euo pipefail
+
+                            docker push \
+                                "${IMAGE_NAME}:${IMAGE_TAG}"
+                        '''
+                    }
+                }
+            }
+        }
+
+
+        /*
+         * ---------------------------------------------------------
+         * HELM VALIDATION
+         * ---------------------------------------------------------
+         */
+
+        stage('Helm Lint') {
+
+            steps {
+
+                sh '''
+                    set -euo pipefail
+
+                    helm dependency update "${HELM_CHART}"
+
+                    helm lint \
+                        "${HELM_CHART}" \
+                        --values "${HELM_CHART}/values.yaml"
+                '''
+            }
+        }
+
+
+        /*
+         * ---------------------------------------------------------
+         * HELM TEMPLATE
+         *
+         * This proves that Helm can successfully generate
+         * Kubernetes manifests before touching GitOps.
+         * ---------------------------------------------------------
+         */
+
+        stage('Render Kubernetes Manifests') {
+
+            steps {
+
+                sh '''
+                    set -euo pipefail
+
+                    mkdir -p rendered-manifests
+
+                    helm template \
+                        "${HELM_RELEASE}" \
+                        "${HELM_CHART}" \
+                        --namespace "${APP_NAME}" \
+                        --values "${HELM_CHART}/values.yaml" \
+                        --set image.repository="${IMAGE_NAME}" \
+                        --set image.tag="${IMAGE_TAG}" \
+                        > rendered-manifests/${APP_NAME}.yaml
+
+                    test -s rendered-manifests/${APP_NAME}.yaml
+                '''
+
+                archiveArtifacts(
+                    artifacts: 'rendered-manifests/*.yaml',
+                    fingerprint: true
+                )
+            }
+        }
+
+
+        /*
+         * ---------------------------------------------------------
+         * HELM PACKAGE
+         * ---------------------------------------------------------
+         */
+
+        stage('Package Helm Chart') {
+
+            steps {
+
+                sh '''
+                    set -euo pipefail
+
+                    mkdir -p helm-package
+
+                    helm package \
+                        "${HELM_CHART}" \
+                        --destination helm-package
+                '''
+
+                archiveArtifacts(
+                    artifacts: 'helm-package/*.tgz',
+                    fingerprint: true
+                )
+            }
+        }
+
+
+        /*
+         * ---------------------------------------------------------
+         * UPDATE GITOPS REPOSITORY
+         * ---------------------------------------------------------
+         */
+
+        stage('Update GitOps Repository') {
+
+            when {
+                expression {
+                    return params.UPDATE_GITOPS
+                }
+            }
+
+            steps {
+
+                dir('gitops') {
+
+                    deleteDir()
+
+                    checkout([
+                        $class: 'GitSCM',
+
+                        branches: [
+                            [
+                                name: '*/main'
+                            ]
+                        ],
+
+                        userRemoteConfigs: [
+                            [
+                                credentialsId: 'github-ssh',
+                                url: "${GITOPS_REPO}"
+                            ]
+                        ]
+                    ])
+
+                    sh '''
+                        set -euo pipefail
+
+                        git config user.name "jenkins"
+                        git config user.email "jenkins@company.com"
+
+                        VALUES_FILE="${GITOPS_ENV_PATH}/values.yaml"
+
+                        test -f "${VALUES_FILE}"
+
+                        yq -i \
+                            '.image.repository = strenv(IMAGE_NAME) |
+                             .image.tag = strenv(IMAGE_TAG)' \
+                            "${VALUES_FILE}"
+
+                        echo "Updated:"
+                        cat "${VALUES_FILE}"
+                    '''
+
+                    script {
+
+                        def changes = sh(
+                            script: 'git status --porcelain',
+                            returnStdout: true
+                        ).trim()
+
+                        if (!changes) {
+
+                            echo 'No GitOps changes detected.'
+
+                        } else {
+
+                            sh """
+                                git add "${GITOPS_ENV_PATH}/values.yaml"
+
+                                git commit \
+                                    -m "chore(${APP_NAME}): deploy ${IMAGE_TAG}"
+
+                                git push origin HEAD:main
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+
+        /*
+         * ---------------------------------------------------------
+         * PRODUCTION APPROVAL
+         *
+         * Jenkins DOES NOT deploy to Kubernetes.
+         *
+         * This approval controls whether Jenkins is allowed
+         * to update the production GitOps repository.
+         * ---------------------------------------------------------
+         */
+
+        stage('Production Approval') {
+
+            when {
+                allOf {
+                    expression {
+                        return params.ENVIRONMENT == 'prod'
+                    }
+
+                    expression {
+                        return params.UPDATE_GITOPS
+                    }
+                }
+            }
+
+            steps {
+
+                input(
+                    message: "Approve production GitOps update for ${APP_NAME}:${IMAGE_TAG}?",
+                    ok: 'Approve'
+                )
+            }
+        }
+    }
+
+
+    /*
+     * -------------------------------------------------------------
+     * POST ACTIONS
+     * -------------------------------------------------------------
+     */
+
+    post {
+
+        success {
+
+            echo """
+            ==============================================
+            PIPELINE SUCCESS
+            ==============================================
+
+            Application : ${APP_NAME}
+            Environment : ${params.ENVIRONMENT}
+            Image       : ${IMAGE_NAME}:${IMAGE_TAG}
+            Commit      : ${GIT_COMMIT_SHORT}
+
+            GitOps has been updated.
+
+            Next step:
+            Manually Sync the application in Argo CD.
+            ==============================================
+            """
+        }
+
+        failure {
+
+            echo """
+            ==============================================
+            PIPELINE FAILED
+            ==============================================
+
+            Application : ${APP_NAME}
+            Build       : ${BUILD_NUMBER}
+
+            Check Jenkins console output.
+            ==============================================
+            """
+        }
+
+        always {
+
+            junit(
+                testResults: '**/target/surefire-reports/*.xml',
+                allowEmptyResults: true
+            )
+
+            cleanWs(
+                deleteDirs: true,
+                disableDeferredWipeout: true
+            )
+        }
+    }
+}
