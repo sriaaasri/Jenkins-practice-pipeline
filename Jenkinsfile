@@ -9,7 +9,7 @@ pipeline {
 
         )
         string(
-            name: 'project'
+            name: 'project',
             defaultValue: 'hello-world'
         )
     }
