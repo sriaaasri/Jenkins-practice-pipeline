@@ -25,8 +25,6 @@ pipeline {
                 'prod'
             ],
             description: "select your environment"
-            
-            
         )
     }
 
@@ -37,7 +35,7 @@ pipeline {
                     echo "Hi ${NAME} . Project: ${project}"
                     echo "Run tests - ${RUN_TESTS}"
                 """
-                echo "${Environment}"
+                echo "${Params.Environment}"
             }
         }
     }
