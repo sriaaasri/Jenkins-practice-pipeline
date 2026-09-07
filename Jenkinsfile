@@ -12,6 +12,22 @@ pipeline {
             name: 'project',
             defaultValue: 'hello-world'
         )
+        booleanParam(
+            name: 'RUN_TESTS',
+            defaultValue: true
+
+        )
+
+        choice(
+            name: 'Environment',
+            choices: [
+                'dev',
+                'prod'
+            ],
+            description: "select your environment"
+            
+            
+        )
     }
 
     stages{
