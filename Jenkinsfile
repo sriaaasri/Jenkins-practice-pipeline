@@ -35,7 +35,16 @@ pipeline {
                     echo "Hi ${NAME} . Project: ${project}"
                     echo "Run tests - ${RUN_TESTS}"
                 """
-                echo "${Params.Environment}"
+                echo "${params.Environment}"
+            }
+        }
+
+        stage("testing"){
+            when{
+                expression { params.RUN_TESTS }
+            }
+            steps{
+                echo "Running tests"
             }
         }
     }
