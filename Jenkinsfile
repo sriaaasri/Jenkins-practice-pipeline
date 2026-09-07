@@ -6,15 +6,18 @@ pipeline {
         disableConcurrentBuilds() 
         timeout(time: 5 , unit: 'MINUTES')
         timestamps()
-
-
+        buildDiscarder(
+            logRotator(
+                numToKeepStr: '10',
+                artifactNumToKeepStr: '5'
+            )
+        )
     }
 
     parameters {
         string (
             name: 'NAME',
             defaultValue: "default"
-
         )
         string(
             name: 'project',
@@ -23,7 +26,6 @@ pipeline {
         booleanParam(
             name: 'RUN_TESTS',
             defaultValue: true
-
         )
 
         choice(
