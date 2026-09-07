@@ -5,7 +5,7 @@ pipeline {
     parameters {
         string (
             name: 'NAME',
-            defaultValue: default
+            defaultValue: "default"
 
         )
     }
