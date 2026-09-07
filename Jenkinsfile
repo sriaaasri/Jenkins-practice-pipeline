@@ -2,6 +2,14 @@ pipeline {
 
     agent any
 
+    options{
+        disableConcurrentBuilds() 
+        timout(time: 5 , unit: 'MINUTES')
+        timestamps()
+        
+
+    }
+
     parameters {
         string (
             name: 'NAME',
