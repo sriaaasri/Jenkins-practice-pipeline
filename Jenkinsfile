@@ -8,13 +8,17 @@ pipeline {
             defaultValue: "default"
 
         )
+        string(
+            name: 'project'
+            defaultValue: 'hello-world'
+        )
     }
 
     stages{
         stage("hello"){
             steps{
                 sh """
-                    echo "Hi ${NAME}"
+                    echo "Hi ${NAME} . Project: ${project}"
                 """
             }
         }
