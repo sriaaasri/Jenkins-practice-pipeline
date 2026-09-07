@@ -47,5 +47,22 @@ pipeline {
                 echo "Running tests"
             }
         }
+        stage("prod Env deploy"){
+            when {
+                expression { params.Environment == "prod"}
+            }
+            steps{
+                echo "Deploying in ${params.Environment}"
+            }
+        }
+
+        stage("dev Env deploy"){
+            when {
+                expression { params.Environment == "dev"}
+            }
+            steps{
+                echo "Deploying in ${params.Environment}"
+            }
+        }
     }
 }
