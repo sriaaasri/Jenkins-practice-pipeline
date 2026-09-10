@@ -66,7 +66,7 @@ pipeline {
         stage("prod Env deploy"){
             when {
                 // expression { params.Environment == "prod"}
-                environment name: "ENVIRONMENT" ,value: "prod"
+                environment name: "ENVIRONENT" ,value: "prod"
             }
             steps{
                 echo "Deploying in ${params.Environment}"
