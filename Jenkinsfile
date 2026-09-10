@@ -14,6 +14,7 @@ pipeline {
         )
     }
 
+    
     parameters {
         string (
             name: 'NAME',
@@ -37,6 +38,11 @@ pipeline {
             description: "select your environment"
         )
     }
+
+    environment{
+        Environment = "${params.Environment}"
+    }
+
 
     stages{
         stage("hello"){
