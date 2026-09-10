@@ -59,7 +59,8 @@ pipeline {
         }
         stage("prod Env deploy"){
             when {
-                expression { params.Environment == "prod"}
+                // expression { params.Environment == "prod"}
+                environment name: "Environment" ,value: "prod"
             }
             steps{
                 echo "Deploying in ${params.Environment}"
@@ -68,7 +69,8 @@ pipeline {
 
         stage("dev Env deploy"){
             when {
-                expression { params.Environment == "dev"}
+                // expression { params.Environment == "dev"}
+                environment name: "Environment" , value: "dev"
             }
             steps{
                 echo "Deploying in ${params.Environment}"
