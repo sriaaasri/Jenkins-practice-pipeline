@@ -40,7 +40,7 @@ pipeline {
     }
 
     environment{
-        Environment = "${params.Environment}"
+        ENVIRONMENT = "${params.Environment}"
     }
 
 
@@ -66,7 +66,7 @@ pipeline {
         stage("prod Env deploy"){
             when {
                 // expression { params.Environment == "prod"}
-                environment name: "Environment" ,value: "prod"
+                environment name: "ENVIRONMENT" ,value: "prod"
             }
             steps{
                 echo "Deploying in ${params.Environment}"
@@ -76,7 +76,7 @@ pipeline {
         stage("dev Env deploy"){
             when {
                 // expression { params.Environment == "dev"}
-                environment name: "Environment" , value: "dev"
+                environment name: "ENVIRONMENT" , value: "dev"
             }
             steps{
                 echo "Deploying in ${params.Environment}"
