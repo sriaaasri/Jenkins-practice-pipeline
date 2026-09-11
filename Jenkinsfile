@@ -82,5 +82,12 @@ pipeline {
                 echo "Deploying in ${params.Environment}"
             }
         }
+
+        
+    }
+    post{
+        always{
+            echo "Hello world"
+        }
     }
 }
