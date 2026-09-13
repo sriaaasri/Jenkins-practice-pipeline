@@ -80,7 +80,7 @@ pipeline {
                 environment name: "ENVIRONMENT" , value: "dev"
             }
             steps{
-                echo "Deploying in ${params.Environment}"
+                echo "Deploying in ${params.Environment} from webhook"
             }
         }
 
