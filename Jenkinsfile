@@ -10,6 +10,7 @@ pipeline {
             logRotator(
                 numToKeepStr: '4',
                 artifactNumToKeepStr: '2'
+                
             )
         )
     }
@@ -66,7 +67,7 @@ pipeline {
         stage("prod Env deploy"){
             when {
                 // expression { params.Environment == "prod"}
-                environment name: "ENVIRONENT" ,value: "prod"
+                environment name: "ENVIRONMENT" ,value: "prod"
             }
             steps{
                 echo "Deploying in ${params.Environment}"
